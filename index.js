@@ -1,11 +1,12 @@
 const core = require('@actions/core');
-const aws = require('aws-sdk');
+// ecs-client.js
+const { ECSClient, RunTaskCommand, DescribeTasksCommand } = require("@aws-sdk/client-ecs");
 const smoketail = require('smoketail')
 
 const main = async () => {
     try {
         // Setup AWS clients
-        const ecs = new aws.ECS({
+        const ecs = new ECSClient({
             customUserAgent: 'github-action-aws-ecs-run-task'
         });
 
@@ -89,7 +90,8 @@ const main = async () => {
         // Start task
         core.debug(JSON.stringify(taskRequestParams))
         core.debug(`Starting task.`)
-        let task = await ecs.runTask(taskRequestParams).promise();
+        const runTaskCommand = new RunTaskCommand(taskRequestParams);
+        let task = await ecs.send(runTaskCommand);
 
         // Get taskArn and taskId
         const taskArn = task.tasks[0].taskArn;
@@ -98,9 +100,24 @@ const main = async () => {
         core.setOutput('task-id', taskId);
         core.info(`Starting Task with ARN: ${taskArn}\n`);
 
-        // Wait for task to be in running state
-        core.debug(`Waiting for task to be in running state.`)
-        await ecs.waitFor('tasksRunning', {cluster, tasks: [taskArn]}).promise();
+         // Wait for task to be in running state, then wait for it to stop
+         core.debug(`Waiting for task to be in running state, then to stop.`);
+         await ecs.waitFor('tasksRunning', {
+             cluster,
+             tasks: [taskArn],
+             $waiter: {
+                 delay: 6,
+                 maxAttempts: taskStoppedWaitForMaxAttempts
+             }
+         });
+         await ecs.waitFor('tasksStopped', {
+             cluster,
+             tasks: [taskArn],
+             $waiter: {
+                 delay: 6,
+                 maxAttempts: taskStoppedWaitForMaxAttempts
+             }
+         });
 
         // Get logging configuration
         let logFilterStream = null;
@@ -154,14 +171,6 @@ const main = async () => {
             }
         }
 
-        // Wait for Task to finish
-        core.debug(`Waiting for task to finish.`);
-        await ecs.waitFor('tasksStopped', {
-            cluster,
-            tasks: [taskArn],
-            $waiter: {delay: 6, maxAttempts: taskStoppedWaitForMaxAttempts}}
-        ).promise();
-
         // Close LogStream and store output
         if (logFilterStream !== null) {
             core.debug(`Closing logStream.`);
@@ -173,12 +182,13 @@ const main = async () => {
 
         // Describe Task to get Exit Code and Exceptions
         core.debug(`Process exit code and exception.`);
-        task = await ecs.describeTasks({cluster, tasks: [taskArn]}).promise();
+        const describeTasksCommand = new DescribeTasksCommand({ cluster, tasks: [taskArn] });
+        const describedTask = await ecs.send(describeTasksCommand);
 
         // Get exitCode
-        if (task.tasks[0].containers[0].exitCode !== 0) {
-            core.info(`Task failed, see details on Amazon ECS console: https://console.aws.amazon.com/ecs/home?region=${aws.config.region}#/clusters/${cluster}/tasks/${taskId}/details`);
-            core.setFailed(task.tasks[0].stoppedReason)
+        if (describedTask.tasks[0].containers[0].exitCode !== 0) {
+            core.info(`Task failed, see details on Amazon ECS console: https://console.aws.amazon.com/ecs/home?region=${ecs.region}#/clusters/${cluster}/tasks/${taskId}/details`);
+            core.setFailed(describedTask.tasks[0].stoppedReason);
         }
     } catch (error) {
         core.setFailed(error.message);
