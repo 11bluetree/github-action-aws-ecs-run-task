@@ -1,7 +1,7 @@
 const core = require('@actions/core');
 // ecs-client.js
 const { ECSClient, RunTaskCommand, DescribeTasksCommand } = require("@aws-sdk/client-ecs");
-const smoketail = require('smoketail')
+const { CloudWatchLogsClient, GetLogEventsCommand } = require("@aws-sdk/client-cloudwatch-logs");
 
 const main = async () => {
     try {
@@ -9,6 +9,23 @@ const main = async () => {
         const ecs = new ECSClient({
             customUserAgent: 'github-action-aws-ecs-run-task'
         });
+        const cloudwatch = new CloudWatchLogsClient();
+        const pollLogEvents = (logGroupName, logStreamName, startTime) => async () =>{
+            const command = new GetLogEventsCommand({
+                logGroupName: logGroupName,
+                logStreamName: logStreamName,
+                startTime: startTime,
+            });
+
+            try {
+                const response = await cloudwatch.send(command);
+                // ログエントリの処理
+                console.log(response.events);
+            } catch (error) {
+                console.error("Error fetching log events", error);
+            }
+        }
+
 
         // Inputs: Required
         const cluster = core.getInput('cluster', {required: true});
@@ -143,16 +160,7 @@ const main = async () => {
                         const logStreamName = [container.logConfiguration.options['awslogs-stream-prefix'], container.name, taskId].join('/')
                         core.debug(`Found matching container with 'awslogs' logDriver. Creating LogStream for '${logStreamName}'`);
 
-                        logFilterStream = new smoketail.CWLogFilterEventStream(
-                            {
-                                logGroupName: container.logConfiguration.options['awslogs-group'],
-                                logStreamNames: [logStreamName],
-                                startTime: Math.floor(+new Date() / 1000),
-                                followInterval: 3000,
-                                follow: true
-                            },
-                            {region: container.logConfiguration.options['awslogs-region']}
-                        );
+                        logFilterStream = pollLogEvents("log-group-name", "log-stream-name", Math.floor(+new Date() / 1000));
 
                         logFilterStream.on('error', function (error) {
                             core.error(error.message);
