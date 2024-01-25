@@ -1,5 +1,3 @@
-[![Geek Cell GmbH](https://raw.githubusercontent.com/geekcell/.github/main/geekcell-github-banner.png)](https://www.geekcell.io/)
-
 <!-- action-docs-description -->
 ## Description
 
@@ -19,7 +17,7 @@ This action is great for executing migrations or other pre/post deployment steps
 ``` yaml
 - name: Execute migrations and seeders
   id: run-task
-  uses: geekcell/github-action-aws-ecs-run-task@v3.0.0
+  uses: 11bluetree/github-action-aws-ecs-run-task@v3.0.0
   with:
     cluster: application-cluster
     task-definition: application-task-def
@@ -48,7 +46,7 @@ This action is great for executing migrations or other pre/post deployment steps
 ``` yaml
 - name: Run migration container
   id: run-task
-  uses: geekcell/github-action-aws-ecs-run-task@v3.0.0
+  uses: 11bluetree/github-action-aws-ecs-run-task@v3.0.0
   with:
     cluster: application-cluster
     task-definition: application-task-def
